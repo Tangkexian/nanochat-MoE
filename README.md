@@ -1,6 +1,6 @@
 # NanoChat-MoE
 
-**NanoChat-MoE** is an end-to-end Mixture-of-Experts (MoE) training and evaluation pipeline built on top of **NanoChat**.  
+**NanoChat-MoE** is an end-to-end Mixture-of-Experts (MoE) training and evaluation pipeline built on top of nanochat and nanomoe.  
 It supports the full large language model lifecycle, including pretraining, mid-training, supervised fine-tuning (SFT), and reinforcement learning (RL), with a focus on training stability and scalable MoE design.
 > **🚀 A minimal, hackable, and research-oriented MoE framework for studying and building scalable language models.**
 
