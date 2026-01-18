@@ -20,6 +20,14 @@ def log0(message):
     if int(os.environ.get('RANK', 0)) == 0:
         logger.info(message)
 
+def _optimizer_path(checkpoint_dir, step):
+    return os.path.join(checkpoint_dir, f"optim_{step:06d}.pt")
+
+
+def _legacy_optimizer_path(checkpoint_dir, step, rank):
+    return os.path.join(checkpoint_dir, f"optim_{step:06d}_rank{rank:d}.pt")
+
+
 def save_checkpoint(checkpoint_dir, step, model_data, optimizer_data, meta_data, rank=0):
     if rank == 0:
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -32,11 +40,11 @@ def save_checkpoint(checkpoint_dir, step, model_data, optimizer_data, meta_data,
         with open(meta_path, "w", encoding="utf-8") as f:
             json.dump(meta_data, f, indent=2)
         logger.info(f"Saved metadata to: {meta_path}")
-    # Note that optimizer state is sharded across ranks, so each rank must save its own.
-    if optimizer_data is not None:
-        optimizer_path = os.path.join(checkpoint_dir, f"optim_{step:06d}_rank{rank:d}.pt")
-        torch.save(optimizer_data, optimizer_path)
-        logger.info(f"Saved optimizer state to: {optimizer_path}")
+        # Save optimizer state once per step (non-sharded optimizer).
+        if optimizer_data is not None:
+            optimizer_path = _optimizer_path(checkpoint_dir, step)
+            torch.save(optimizer_data, optimizer_path)
+            logger.info(f"Saved optimizer state to: {optimizer_path}")
 
 def load_checkpoint(checkpoint_dir, step, device, load_optimizer=False, rank=0):
     # Load the model state
@@ -45,7 +53,11 @@ def load_checkpoint(checkpoint_dir, step, device, load_optimizer=False, rank=0):
     # Load the optimizer state if requested
     optimizer_data = None
     if load_optimizer:
-        optimizer_path = os.path.join(checkpoint_dir, f"optim_{step:06d}_rank{rank:d}.pt")
+        optimizer_path = _optimizer_path(checkpoint_dir, step)
+        if not os.path.exists(optimizer_path):
+            optimizer_path = _legacy_optimizer_path(checkpoint_dir, step, rank)
+            if rank != 0 and not os.path.exists(optimizer_path):
+                optimizer_path = _legacy_optimizer_path(checkpoint_dir, step, 0)
         optimizer_data = torch.load(optimizer_path, map_location=device)
     # Load the metadata
     meta_path = os.path.join(checkpoint_dir, f"meta_{step:06d}.json")
@@ -63,6 +75,11 @@ def build_model(checkpoint_dir, step, device, phase):
     - meta data saved during base model training
     """
     assert phase in ["train", "eval"], f"Invalid phase: {phase}"
+
+    # Allow callers to pass strings like "cuda" / "cuda:0".
+    if isinstance(device, str):
+        device = torch.device(device)
+
     model_data, optimizer_data, meta_data = load_checkpoint(checkpoint_dir, step, device, load_optimizer=False)
     if device.type in {"cpu", "mps"}:
         # Convert bfloat16 tensors to float for CPU inference
@@ -73,13 +90,32 @@ def build_model(checkpoint_dir, step, device, phase):
     # Hack: fix torch compile issue, which prepends all keys with _orig_mod.
     model_data = {k.removeprefix("_orig_mod."): v for k, v in model_data.items()}
     model_config_kwargs = meta_data["model_config"]
+
+    # Backward-compat: older checkpoints may not store MoE fields (e.g. n_exp) in meta.json.
+    # If missing, infer from checkpoint tensor shapes to avoid load_state_dict size mismatches.
+    if "n_exp" not in model_config_kwargs:
+        inferred_n_exp = None
+        for k, v in model_data.items():
+            if not isinstance(v, torch.Tensor):
+                continue
+            # Router gate weight: [n_exp, n_embd]
+            if k.endswith("mlp.router.w_g.weight") and v.ndim == 2:
+                inferred_n_exp = int(v.shape[0])
+                break
+            # Expert FC: [n_exp, n_embd, 4*n_embd]
+            if k.endswith("mlp.experts.c_fc") and v.ndim == 3:
+                inferred_n_exp = int(v.shape[0])
+                break
+        if inferred_n_exp is not None:
+            model_config_kwargs["n_exp"] = inferred_n_exp
+            log0(f"Inferred missing model_config.n_exp={inferred_n_exp} from checkpoint weights")
     log0(f"Building model with config: {model_config_kwargs}")
     model_config = GPTConfig(**model_config_kwargs)
     with torch.device("meta"):
         model = GPT(model_config)
     # Load the model state
     model.to_empty(device=device)
-    model.init_weights() # note: this is dumb, but we need to init the rotary embeddings. TODO: fix model re-init
+    # Weights are already initialized in GPT.__init__ via self.apply(self._init_weights)
     model.load_state_dict(model_data, strict=True, assign=True)
     # Put the model in the right training phase / mode
     if phase == "eval":
@@ -125,6 +161,9 @@ def find_last_step(checkpoint_dir):
 # convenience functions that take into account nanochat's directory structure
 
 def load_model_from_dir(checkpoints_dir, device, phase, model_tag=None, step=None):
+    # Normalize for callers that pass strings (e.g. "cuda").
+    if isinstance(device, str):
+        device = torch.device(device)
     if model_tag is None:
         # guess the model tag by defaulting to the largest model
         model_tag = find_largest_model(checkpoints_dir)
