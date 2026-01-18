@@ -2,7 +2,7 @@
 
 **NanoChat-MoE** is an end-to-end Mixture-of-Experts (MoE) training and evaluation pipeline built on top of **NanoChat**.  
 It supports the full large language model lifecycle, including pretraining, mid-training, supervised fine-tuning (SFT), and reinforcement learning (RL), with a focus on training stability and scalable MoE design.
-
+> **🚀 A minimal, hackable, and research-oriented MoE framework for studying and building scalable language models.**
 
 ## Overview
 
@@ -12,13 +12,17 @@ NanoChat-MoE addresses these challenges by integrating sparse MoE layers into Na
 
 The resulting framework provides a full-stack MoE training pipeline, covering tokenization, training, evaluation, and analysis. It supports all major LLM training stages, incorporates sparse MoE layers with top-k routing and capacity constraints, and stabilizes optimization through **load-balancing loss** and **router z-loss regularization**. Evaluation is unified through **LM-Eval-Harness**, and all experiments are fully reproducible, enabling systematic scaling studies across model depth, width, and expert count.
 
-> **This repository is intended both as a research testbed for studying MoE training dynamics and as a hackable reference implementation for building scalable MoE-based language models!**
-
 ## Model Architecture
 
-NanoChat-MoE extends the NanoChat Transformer by replacing selected MLP blocks with sparse Mixture-of-Experts (MoE) layers. In each MoE layer, a lightweight router predicts expert assignment logits for every token, and a top-k routing mechanism dispatches tokens to a subset of MLP experts under capacity constraints to prevent expert overload.
+NanoChat-MoE extends the standard NanoChat Transformer by selectively replacing MLP blocks with sparse Mixture-of-Experts (MoE) layers.
 
-To ensure stable optimization and avoid expert collapse, we incorporate two MoE-specific auxiliary losses. The **load-balancing loss** encourages uniform expert utilization across tokens, while the **router z-loss** regularizes router logits to control their magnitude. These auxiliary losses are aggregated across all MoE layers and jointly optimized with the primary training objective.
+In each MoE layer, a lightweight router predicts expert assignment logits for every token. A top-k routing strategy dispatches tokens to a subset of MLP experts, while capacity constraints prevent individual experts from being overloaded.
+
+To stabilize training and avoid expert collapse, we introduce two MoE-specific auxiliary losses:
+- Load-balancing loss, which encourages uniform utilization across experts
+- Router z-loss, which regularizes the magnitude of router logits
+
+These auxiliary losses are aggregated across all MoE layers and jointly optimized with the primary language modeling objective, leading to significantly more stable training behavior.
 
 
 ## Quick start
@@ -28,30 +32,40 @@ Boot up a new 8XA800 GPU box from your favorite provider,  and start the trainin
 bash speedrun_moe.sh
 ```
 
-If you are interested in the details of each training stage, you can inspect this script directly, which includes inline comments and explanations for each phase of the pipeline.
+The script runs the complete pipeline end-to-end, including pretraining, mid-training, fine-tuning, and evaluation.
 
-For each training phase, we use the same dataset configuration as NanoChat:
-| Phase            | Training dataset | 
+If you are interested in the details of each training stage, we encourage you to inspect the script directly. It contains inline comments and explanations for every phase of the pipeline.
+
+## Training Data
+
+For each training phase, we align the dataset configuration with NanoChat, ensuring fair and controlled comparisons.
+| Phase            | Training datasets | 
 |---------------------|:--------:|
 | Pretrain                | OpenWebText  | 
 | Mid-train               | SmolTalk (460K), MMLU-auxiliary (100K), GSM8K-main (8K), CustomJSON-Identity (1K ×2 epochs), SimpleSpelling (200K), SpellingBee (80K)|
 | SFT    | ARC-Easy (2.3K), ARC-Challenge (1.1K), GSM8K-main (8K), SmolTalk (10K), CustomJSON-Identity (1K), SimpleSpelling (300), SpellingBee (300)| 
 | RL      | GSM8K |
 
+## Training Dynamics
+
+During pretraining, the optimization process typically produces a loss curve similar to the following:
+
+<img src="assets/d6_pretrain.png" width="80%">
+
 ### Evaluation
 
 We integrate **LM-Eval-Harness** for systematic evaluation across training phases. 
 
-For a 6-layer, 80M NanochatMoE model:
+Below we report results for a 6-layer, 86M-A65M-parameter NanoChat-MoE model:
 
 | Metric              | Pretrain | Mid-train | SFT    | RL|
 |---------------------|:--------:|:---------:|:------:|:------:|
-| Core                | 0.0836   | 0.0812    | 0.0706 |  |
-| MMLU                | 0.2296   | 0.2305    | 0.2424 |  |
+| Core                | 0.0836   | 0.0812    | 0.0706 | -- |
+| MMLU                | 0.2296   | 0.2305    | 0.2424 |--  |
 | GSM8K (flexible)    | --       | 0.0190    | 0.0205 | 0.0303 |
 | GSM8K (strict)      | --       | 0.0053    | 0.0061 | 0.0212 |
 
-where the _Core_ benchmark include: ARC-Easy, ARC-Challenge, HellaSwag, PIQA, and Winogrande. Results are reported using a normalized average score to ensure fair comparison across tasks.
+The _Core_  benchmark aggregates ARC-Easy, ARC-Challenge, HellaSwag, PIQA, and Winogrande, using a normalized average score for fair cross-task comparison.
 
 ## Repository Structure
 
