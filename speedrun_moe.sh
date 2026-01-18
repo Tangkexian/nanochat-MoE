@@ -11,10 +11,10 @@
 # WANDB_RUN=speedrun screen -L -Logfile speedrun.log -S speedrun bash speedrun.sh
 
 # Default intermediate artifacts directory is in ~/.cache/nanochat-moe
-export USER=""
+export USER="root"
 export OMP_NUM_THREADS=1
-export NANOCHAT_BASE_DIR="$USER/.cache/nanochat-moe"
-export NANOCHAT_DATA_DIR="$USER/.cache/nanochat-moe/base_data"
+export NANOCHAT_BASE_DIR="/$USER/.cache/nanochat-moe"
+export NANOCHAT_DATA_DIR="/$USER/.cache/nanochat-moe/base_data"
 mkdir -p $NANOCHAT_BASE_DIR
 mkdir -p $NANOCHAT_DATA_DIR
 
@@ -22,7 +22,7 @@ mkdir -p $NANOCHAT_DATA_DIR
 
 # Use tokenizer from nanochat (not nanochat-moe)
 # Create a symlink to nanochat's tokenizer directory if it doesn't exist
-NANOCHAT_TOKENIZER_DIR="$USER/.cache/nanochat-moe/tokenizer"
+NANOCHAT_TOKENIZER_DIR="/$USER/.cache/nanochat-moe/tokenizer"
 MOE_TOKENIZER_DIR="$NANOCHAT_BASE_DIR/tokenizer"
 if [ -d "$NANOCHAT_TOKENIZER_DIR" ] && [ ! -e "$MOE_TOKENIZER_DIR" ]; then
     echo "Creating symlink to nanochat tokenizer: $MOE_TOKENIZER_DIR -> $NANOCHAT_TOKENIZER_DIR"
@@ -32,8 +32,8 @@ elif [ ! -d "$NANOCHAT_TOKENIZER_DIR" ]; then
     echo "You may need to train the tokenizer first using nanochat's tok_train.py"
 fi
 
-# # -----------------------------------------------------------------------------
-# # China mirror configuration (环境镜像配置)
+# -----------------------------------------------------------------------------
+# China mirror configuration 
 
 # # Configure pip mirror
 # mkdir -p ~/.pip
@@ -57,7 +57,7 @@ fi
 # if ! grep -q "RUSTUP_DIST_SERVER" "$SHELL_RC" 2>/dev/null; then
 #     cat >> "$SHELL_RC" << 'EOF'
 
-# # Rust 镜像配置
+# # Rust mirror settings
 # export RUSTUP_DIST_SERVER=https://rsproxy.cn
 # export RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
 # EOF
@@ -95,7 +95,7 @@ fi
 export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 uv sync --extra gpu
 # activate venv so that `python` uses the project's venv instead of system python
-source "${USER}/nanochat/.venv/bin/activate"
+source "/$USER/nanochat/.venv/bin/activate"
 
 # # -----------------------------------------------------------------------------
 # wandb setup
@@ -111,10 +111,10 @@ if [ -z "$WANDB_RUN" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# # During the course of the run, we will be writing markdown reports to the report/
-# # directory in the base dir. This command clears it out and writes a header section
-# # with a bunch of system info and a timestamp that marks the start of the run.
-# python -m nanochat.report reset
+# During the course of the run, we will be writing markdown reports to the report/
+# directory in the base dir. This command clears it out and writes a header section
+# with a bunch of system info and a timestamp that marks the start of the run.
+python -m nanochat.report reset
 
 # -----------------------------------------------------------------------------
 # Tokenizer
